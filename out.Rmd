@@ -1,0 +1,216 @@
+---
+title: "Prediction Assignment Writeup"
+output:
+  html_document:
+    theme: united
+    toc: yes
+---
+
+## Project summary
+
+> Background:\
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).\
+
+> Data:
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+
+## Data cleaning and preprocessing
+
+```{r clean, cache=TRUE}
+# Load data
+setwd("~/ayman/master/home/khodieaf/ayman/lrnngprog/R_resources/Coursera_DataScience/ML")
+dat  = read.csv("pml-training.csv", header = T, na.strings = c("", "#DIV/0!", "NA"))[, -c(1:7)] # keep activity related vars only
+unk = read.csv("pml-testing.csv", header = T, na.strings = c("", "#DIV/0!", "NA"))[, -c(1:7)]  # keep activity related vars only
+
+# data cleaning and preprocesing
+rmcol = as.vector(!is.na(apply(unk,2,sd))) # remove columns with NAs
+dat   = dat[,rmcol]
+unk   = unk[,rmcol]
+
+# convert input vars into numeric class
+ind   = c(1:52)
+dat[, c(1:52)]  = as.data.frame(lapply(dat[,ind], as.numeric))
+unk[, c(1:52)] = as.data.frame(lapply(unk[,ind], as.numeric))
+```
+
+## Data partitioning
+
+```{r part, cache=TRUE, message=F}
+# Load packages
+library(caret)
+library(rattle)
+
+# Partition for building a model ensemble using the best 2 performing models; the rest for validation
+inbuild = createDataPartition(dat$classe, p=0.75, list = F)
+build   = dat[inbuild,]
+val     = dat[-inbuild,]
+
+# Partition the build data set into training and testing data sets
+intrain  = createDataPartition(build$classe, p=0.75, list = F)
+training = build[intrain,]
+testing  = build[-intrain,]
+
+dim(dat)
+dim(val)
+dim(build)
+dim(training)
+dim(testing)
+```
+
+## Cross validation parameters (Train control)
+
+#### How cross validation was used?
+
+repeated *K*-fold cross validation with 10 folds and repeated 10 times.
+
+```{r trControl, cache=T}
+ctrl = trainControl(method = "repeatedcv",                # repeated K-folds
+                    number = 10,                          # 10 folds
+                    repeats = 10,                         # 10 repeats
+                    summaryFunction = multiClassSummary,  # Evaluate Performance 
+                    classProbs = T,                       # Estimate class probabilities
+                    savePredictions = T) 
+```
+
+## Models Training
+
+A number of models will be assessed and the best 2 models will be used for ensembling.
+
+### 1. Recursive partioning
+
+```{r rpart, message=FALSE, warning=FALSE, cache=T}
+library(doMC)                                             # multi-core processing
+registerDoMC(cores = 6)
+
+set.seed(1234)
+rpfit = train(classe ~ ., data = training, method = "rpart", trControl = ctrl)
+fancyRpartPlot(rpfit$finalModel)
+```
+
+#### Confusion Matrix
+
+```{r rpart2,  message=FALSE, warning=FALSE, cache=T}
+rpart.pred = predict(rpfit, testing)
+confusionMatrix(rpart.pred, testing$classe)
+```
+
+### 2. Random forests
+
+```{r rf, message=FALSE, warning=FALSE, cache=T}
+library(doMC)                                             # multi-core processing
+registerDoMC(cores = 6)
+
+set.seed(1234)
+rffit = train(classe ~ ., data = training, method = "rf", trControl = ctrl)
+```
+
+### Contributing vars
+```{r rfvars, cache=T, message=F, warning=F, fig.width = 5, fig.height=12}
+plot(varImp(rffit, top=20))
+```
+
+#### Confusion Matrix
+
+```{r rf2,  message=FALSE, warning=FALSE, cache=T}
+rf.pred = predict(rffit, testing)
+confusionMatrix(rf.pred, testing$classe)
+```
+
+### 3. Stochastic gradient boosting (GBM)
+
+```{r gbm, message=FALSE, warning=FALSE, cache=T}
+library(doMC)                                             # multi-core processing
+registerDoMC(cores = 6)
+
+set.seed(1234)
+gbmfit = train(classe ~ ., data = training, method = "gbm", trControl = ctrl)
+```
+
+### Contributing vars
+```{r gbmvars, cache=T, message=F, warning=F, fig.width = 5, fig.height=12}
+plot(varImp(gbmfit, top=20))
+```
+
+#### Confusion Matrix
+
+```{r gbm2,  message=FALSE, warning=FALSE, cache=T}
+gbm.pred = predict(gbmfit, testing)
+confusionMatrix(gbm.pred, testing$classe)
+```
+
+## Model ensembling
+
+```{r ensemble, cache=T, message=F, warning=F}
+library(doMC)                                             # multi-core processing
+registerDoMC(cores = 6)
+
+set.seed(1234)
+
+mod1 = rffit
+mod2 = gbmfit
+
+# Train the ensemble
+p1       = rf.pred
+p2       = gbm.pred
+comboDF  = data.frame(p1, p2, classe = testing$classe)
+combofit = train(classe ~ ., data = comboDF, method = "rf")
+```
+
+### Confusion Matrix
+
+```{r ensemble2, cache=T, message=F, warning=F}
+# Predict the validation set using 2 models
+val.p1          = predict(mod1, val)
+val.p2          = predict(mod2, val)
+valcombo        = data.frame(val.p1, val.p2, classe = val$classe)
+names(valcombo) = names(comboDF)
+val.p3          = predict(combofit, valcombo)
+
+
+
+confusionMatrix(val.p3, val$classe)
+```
+
+## Model selection
+
+### Accuracy and Out-of-sample error (OOSE)
+
+```{r select, message=FALSE, warning=FALSE, cache=T}
+library(knitr)
+library(ggplot2)
+
+tab = read.csv("selectmodel.csv", header = T)
+tab = tab[order(tab$OOSE),]
+kable(tab, format = "markdown")
+
+ggplot(tab, aes(Model, Accuracy))+
+  geom_bar(stat="identity")+
+  ggtitle("Between models accuracy")
+
+ggplot(tab, aes(Model, OOSE))+
+  geom_bar(stat="identity")+
+  ggtitle("Between models out-of-sample-error")
+```
+
+
+## Conclusion: Final model selection
+This shows that the ensemble of the random forests and GBM has the highest accuracy and the lowest out-of-sample error.
+
+## Prediction of the unknown dataset
+
+```{r test, cache=T, message=T, warning=T}
+pred1 = predict(rffit, unk)
+pred2 = predict(gbmfit, unk)
+combo = data.frame(p1 = pred1, p2 = pred2)
+pred  = predict(combofit, combo)
+
+predtab = data.frame(Problem_Id = unk$problem_id, pred = pred)
+predtab
+```
+
+
