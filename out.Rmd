@@ -112,7 +112,7 @@ set.seed(1234)
 rffit = train(classe ~ ., data = training, method = "rf", trControl = ctrl)
 ```
 
-### Contributing vars
+#### Contributing vars
 ```{r rfvars, cache=T, message=F, warning=F, fig.width = 5, fig.height=12}
 plot(varImp(rffit, top=20))
 ```
@@ -134,7 +134,7 @@ set.seed(1234)
 gbmfit = train(classe ~ ., data = training, method = "gbm", trControl = ctrl)
 ```
 
-### Contributing vars
+#### Contributing vars
 ```{r gbmvars, cache=T, message=F, warning=F, fig.width = 5, fig.height=12}
 plot(varImp(gbmfit, top=20))
 ```
@@ -146,7 +146,7 @@ gbm.pred = predict(gbmfit, testing)
 confusionMatrix(gbm.pred, testing$classe)
 ```
 
-## Model ensembling
+### 4. Model ensembling
 
 ```{r ensemble, cache=T, message=F, warning=F}
 library(doMC)                                             # multi-core processing
@@ -164,7 +164,7 @@ comboDF  = data.frame(p1, p2, classe = testing$classe)
 combofit = train(classe ~ ., data = comboDF, method = "rf")
 ```
 
-### Confusion Matrix
+#### Confusion Matrix
 
 ```{r ensemble2, cache=T, message=F, warning=F}
 # Predict the validation set using 2 models
@@ -183,26 +183,27 @@ confusionMatrix(val.p3, val$classe)
 
 ### Accuracy and Out-of-sample error (OOSE)
 
-```{r select, message=FALSE, warning=FALSE, cache=T}
+```{r select, message=FALSE, warning=FALSE, cache=F}
 library(knitr)
 library(ggplot2)
 
 tab = read.csv("selectmodel.csv", header = T)
 tab = tab[order(tab$OOSE),]
+rownames(tab) = c(1:4)
 kable(tab, format = "markdown")
 
 ggplot(tab, aes(Model, Accuracy))+
   geom_bar(stat="identity")+
-  ggtitle("Between models accuracy")
+  ggtitle("Accuracy")
 
 ggplot(tab, aes(Model, OOSE))+
   geom_bar(stat="identity")+
-  ggtitle("Between models out-of-sample-error")
+  ggtitle("Out-of-sample-error")
 ```
 
 
-## Conclusion: Final model selection
-This shows that the ensemble of the random forests and GBM has the highest accuracy and the lowest out-of-sample error.
+## Conclusion
+> This shows that the ensemble of the random forests and GBM has the highest accuracy and the lowest out-of-sample error.
 
 ## Prediction of the unknown dataset
 
@@ -213,7 +214,7 @@ combo = data.frame(p1 = pred1, p2 = pred2)
 pred  = predict(combofit, combo)
 
 predtab = data.frame(Problem_Id = unk$problem_id, pred = pred)
-predtab
+#predtab
 ```
 
 
